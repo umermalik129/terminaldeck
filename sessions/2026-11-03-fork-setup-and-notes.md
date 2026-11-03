@@ -74,9 +74,26 @@ template, and tools (`start-feature.ps1`, `run-windows-debug.ps1`,
 - `git status` in the main worktree stayed clean throughout.
 - The app has **not been launched yet**, and no IDE is installed yet.
 
+## Part 3: first launch attempt
+
+- Ran `run-windows-debug.ps1 -NoBuild`. The app showed the bootstrapper dialog
+  **"Required components of the Windows App Runtime are missing. Version 1.8
+  (MSIX package version >= 8000.994.2142.0)"**. The installed runtime is
+  8000.946.1701.0. No data folder or keeper was created. The dev process
+  (PID 2556) was closed with `-StopOnly`.
+- I found the user's **installed Terminal Deck** running: MSIX 0.20.3.1, stable
+  channel, 4 live session workers. It bundles its own runtime and was not
+  touched.
+- winget's newest runtime package is 1.8.10 (260710003), which is too old.
+  Downloaded the exact `1.8.260921001` installer from Microsoft (106,879,800
+  bytes, Authenticode signature Valid, Microsoft Corporation) into the scratchpad.
+- **The Claude Code permission classifier blocked running it** ("Code from
+  External"). The user has to run it themselves; the command is in WINDOWS_DEV.md §1.
+
 ## Next
 
-- [x] Install .NET SDK 10.0.4xx and Windows App Runtime 1.8
+- [x] Install .NET SDK 10.0.4xx
+- [ ] **Update Windows App Runtime 1.8 to >= 8000.994.2142.0** (installer 1.8.260921001)
 - [x] First build (passes with the local contracts)
 - [ ] First launch: `.\.dev-notes\tools\run-windows-debug.ps1 -NoBuild`, then check `C:\TD\dev\data\logs\errors.log`
 - [ ] Install Visual Studio 2026 with the WinUI workload, or VS Code with C# Dev Kit

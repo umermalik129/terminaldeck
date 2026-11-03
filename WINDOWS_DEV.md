@@ -15,7 +15,8 @@ Upstream ships it for macOS now, and its last Windows release was 0.15.0. See
 | Python | 3.15.2 |
 | WebView2 runtime | 156.0.4314.58 installed |
 | .NET SDK | **10.0.403**, installed 2026-11-03 with `winget install --id Microsoft.DotNet.SDK.10 --version 10.0.403 --exact`. That is the same version upstream tested with. `windows/global.json` pins `10.0.400` with `rollForward: latestPatch`, so only 10.0.4xx SDKs work. |
-| Windows App Runtime 1.8 | Already installed (`8000.946.1701.0`; 1.5, 1.7 and 2.x are present too). The app is unpackaged and not self-contained, so it needs this runtime at launch. |
+| **Windows App Runtime 1.8** | **Too old.** `8000.946.1701.0` is installed, but the app references WindowsAppSDK **1.8.260921001**, which needs **>= 8000.994.2142.0**. The first launch showed the dialog "Required components of the Windows App Runtime are missing". winget's newest package (1.8.10 = 1.8.260710003) does not fix this; you need the 260921001 installer. See §1. |
+| Installed Terminal Deck | MSIX **0.20.3.1** (`C:\Program Files\WindowsApps\TerminalDeck_0.20.3.1_x64__...`). It uses the stable channel (`%LOCALAPPDATA%\TerminalDeckStable`) and bundles its own WinAppSDK runtime, so updating the system runtime does not affect it. Dev runs use a different namespace and never touch it. |
 | **IDE** | **none yet.** No Visual Studio, and VS Code is not on PATH. |
 
 Windows 10 caveats (from reading the code; nothing in the repo records a Windows 10 test run):
@@ -35,7 +36,19 @@ installers raise a UAC prompt:
 
 ```powershell
 winget install --id Microsoft.DotNet.SDK.10 --version 10.0.403 --exact
-winget install Microsoft.WindowsAppRuntime.1.8      # check first: Get-AppxPackage Microsoft.WindowsAppRuntime.1.8*
+```
+
+**Windows App Runtime: match the version in `TerminalDeck.App.csproj`**
+(`Microsoft.WindowsAppSDK` 1.8.260921001 as of 169cd5e). winget can lag behind
+it, so use Microsoft's direct link for that exact build:
+
+```powershell
+$v = '1.8.260921001'
+$exe = "$env:TEMP\WindowsAppRuntimeInstall-x64-$v.exe"
+Invoke-WebRequest "https://aka.ms/windowsappsdk/1.8/$v/windowsappruntimeinstall-x64.exe" -OutFile $exe -UseBasicParsing
+(Get-AuthenticodeSignature $exe).SignerCertificate.Subject    # expect CN=Microsoft Corporation
+& $exe --quiet                                                # no --force, so it never shuts down running apps
+Get-AppxPackage Microsoft.WindowsAppRuntime.1.8* | Select-Object Name, Version   # expect >= 8000.994.2142.0
 ```
 
 A terminal opened before the install will not see `dotnet`. Open a new one, or run
