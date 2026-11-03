@@ -274,6 +274,27 @@ window, because a relaunch remembered an off-screen position and came up
 minimized, and UI Automation then finds no buttons. `settings-shot.ps1`
 captures Settings off-screen.
 
+## Part 8: "terminal is one colour" again, and keystroke errors
+
+- **Environment checked directly.** I read each process's environment block
+  from its PEB with the scratchpad `proc-env.ps1` (read-only).
+  - Checked: dev app 42556, keeper 36460, worker 43192, and the session shell
+    `cmd.exe` 40036.
+  - None has `NO_COLOR`, `CLAUDECODE` or `GIT_*`; only `TD_DEV=1` is passed on.
+  - So the leak is fixed. The user's only live session was **Command Prompt**,
+    which prints in one colour by nature. Windows PowerShell 5.1 is also mostly
+    one colour.
+- **`errors.log` "[Terminal action] EndOfStreamException" on input.**
+  - Cause: `KeeperEndpoint` drops the connection when `RequireLease` throws.
+    That happens for a session that isn't Running (or no longer exists), for
+    example the old "Claude Code" tab whose session ended in an earlier restart.
+  - Typing into such a tab logs these errors and does nothing. That's upstream
+    behaviour and possibly worth a small PR: show the tab as ended, or don't
+    send input.
+  - Correction: I first blamed `-KeepKeeper` (new app, older keeper). That's
+    wrong. The protocol version, secret and instance were unchanged, so a kept
+    keeper only matters when keeper code changes.
+
 ## Next
 
 - [x] Install .NET SDK 10.0.4xx
