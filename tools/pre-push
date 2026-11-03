@@ -1,0 +1,47 @@
+#!/bin/sh
+# Optional local guard for the terminaldeck fork. Not part of the repo.
+# Install (from the repo root, once):
+#   Copy-Item .dev-notes/tools/pre-push .git/hooks/pre-push
+#
+# What it blocks:
+#   1. Any push to upstream (asadev/terminaldeck). PRs go from origin instead.
+#   2. Pushing dev-notes anywhere except origin (umermalik129/terminaldeck).
+#   3. Pushing any other branch that contains .dev-notes/ files or dev-notes history.
+# Bypass in an emergency with: git push --no-verify
+
+remote_name="$1"
+remote_url="$2"
+zero=0000000000000000000000000000000000000000
+fail=0
+
+case "$remote_url" in
+  *asadev/terminaldeck*)
+    echo "pre-push: refusing to push to upstream ($remote_url). Push to origin and open a PR." >&2
+    exit 1 ;;
+esac
+
+notes_tip=$(git rev-parse --verify --quiet refs/heads/dev-notes)
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue   # branch deletion
+
+  if [ "$remote_ref" = "refs/heads/dev-notes" ] || [ "$local_ref" = "refs/heads/dev-notes" ]; then
+    case "$remote_url" in
+      *umermalik129/terminaldeck*) ;;
+      *) echo "pre-push: dev-notes may only go to the fork (umermalik129), not $remote_name ($remote_url)." >&2; fail=1 ;;
+    esac
+    if [ "$remote_ref" != "refs/heads/dev-notes" ]; then
+      echo "pre-push: dev-notes must be pushed to refs/heads/dev-notes, not $remote_ref." >&2; fail=1
+    fi
+    continue
+  fi
+
+  if git ls-tree -r --name-only "$local_sha" | grep -q '^\.dev-notes/'; then
+    echo "pre-push: $local_ref contains .dev-notes/ files. Remove them before pushing." >&2; fail=1
+  fi
+  if [ -n "$notes_tip" ] && git merge-base --is-ancestor "$notes_tip" "$local_sha" 2>/dev/null; then
+    echo "pre-push: $local_ref includes dev-notes history (was dev-notes merged in?)." >&2; fail=1
+  fi
+done
+
+exit $fail
