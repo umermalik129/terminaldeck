@@ -14,9 +14,9 @@ Upstream ships it for macOS now, and its last Windows release was 0.15.0. See
 | git / gh | 2.55, `gh` logged in as `umermalik129` (scopes include `repo` and `workflow`) |
 | Python | 3.15.2 |
 | WebView2 runtime | 156.0.4314.58 installed |
-| **.NET SDK** | **missing.** `windows/global.json` pins `10.0.400` with `rollForward: latestPatch`, so you need a **10.0.4xx** SDK specifically. |
-| **Windows App Runtime 1.8** | **not checked yet.** The app is unpackaged and not self-contained, so it needs this runtime at launch. |
-| **IDE** | **none.** No Visual Studio, and VS Code is not on PATH. |
+| .NET SDK | **10.0.403**, installed 2026-11-03 with `winget install --id Microsoft.DotNet.SDK.10 --version 10.0.403 --exact`. That is the same version upstream tested with. `windows/global.json` pins `10.0.400` with `rollForward: latestPatch`, so only 10.0.4xx SDKs work. |
+| Windows App Runtime 1.8 | Already installed (`8000.946.1701.0`; 1.5, 1.7 and 2.x are present too). The app is unpackaged and not self-contained, so it needs this runtime at launch. |
+| **IDE** | **none yet.** No Visual Studio, and VS Code is not on PATH. |
 
 Windows 10 caveats (from reading the code; nothing in the repo records a Windows 10 test run):
 - Mica is Windows 11 only. `Views/Windows/WindowMaterials.cs` checks
@@ -30,12 +30,16 @@ Windows 10 caveats (from reading the code; nothing in the repo records a Windows
 
 ## 1. One-time setup
 
-Run these in an **elevated** PowerShell, because installers trigger UAC:
+**Done on this machine** (2026-11-03). On a new machine, install these; the
+installers raise a UAC prompt:
 
 ```powershell
-winget install Microsoft.DotNet.SDK.10
-winget install Microsoft.WindowsAppRuntime.1.8
+winget install --id Microsoft.DotNet.SDK.10 --version 10.0.403 --exact
+winget install Microsoft.WindowsAppRuntime.1.8      # check first: Get-AppxPackage Microsoft.WindowsAppRuntime.1.8*
 ```
+
+A terminal opened before the install will not see `dotnet`. Open a new one, or run
+`$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')`.
 
 Then, in a new terminal:
 
@@ -78,32 +82,34 @@ files also point into it: `Platform.Windows/README.md` cites
 `docs/WIN-PROGRESS.md` and `docs/WIN-PARITY-REQUESTS.md`. The likely cause is
 that the folder was left out of the public export. Two consequences:
 
-- The compiler cannot read a missing embedded resource, so **`TerminalDeck.Core`
-  is expected to fail to build**. That would take down everything that depends
-  on it: App, Keeper, Platform.Windows and every test project. Confirm this on
-  the first build.
-- If you got past the build, `Core/Mcp/McpCatalogue.cs:15` would throw "The MCP
-  contracts are missing." at run time.
+- **Confirmed on the first build (2026-11-03).** `TerminalDeck.Core` fails with
+  `CSC : error CS1566: Error reading resource 'Contracts.deck-tools-windows-integration.json' -- 'Could not find a part of the path ...\windows\docs\contracts\...'`.
+  That takes down everything that depends on Core: App, Keeper, Platform.Windows
+  and every test project.
+- Even with a successful build, `Core/Mcp/McpCatalogue.cs:15` would throw "The
+  MCP contracts are missing." at run time.
 
-**Unblock locally (never commit this).** Each file only needs a top-level
-`entries` array. Empty stubs drop the Mac-derived `sessions.*`, `browser.*`,
-`accounts.*` and similar MCP tools, but Projects, Tasks, Servers, Receiver,
-Hoot, Code and Account tools are still registered in code:
+**Unblock locally (already done here, never commit it):**
 
 ```powershell
-cd C:\Users\admin\Projects\terminaldeck
-New-Item -ItemType Directory -Force windows\docs\contracts | Out-Null
-foreach ($n in 'deck-tools-windows-integration','deck-tools-static-source','deck-tools-runtime-source') {
-  $f = "windows\docs\contracts\$n.json"; if (-not (Test-Path $f)) { Set-Content $f '{"entries":[]}' -Encoding ascii }
-}
-Add-Content .git\info\exclude "/windows/docs/contracts/"   # keeps the stubs out of every PR
+.\.dev-notes\tools\make-local-contracts.ps1
 ```
 
-Expect MCP and tool-list tests to fail with the stubs. `windows/scripts/capture-source-contracts.py`
-can regenerate the *static* file from the Swift sources, but it looks for them
-in `../td-native-shell/macos/...`. Here they are in
-`macos/TerminalDeckNative/Sources/TerminalDeckBackend/`, so the script needs
-its source path changed. Nothing in the repo generates the other two files.
+The script does three things:
+- It regenerates **`deck-tools-static-source.json` with real data**: 64 tools,
+  from `macos/TerminalDeckNative/Sources/TerminalDeckBackend/`. It runs
+  upstream's `windows/scripts/capture-source-contracts.py` from a temp copy
+  with the source path fixed, because the original looks for
+  `../td-native-shell/macos/...`.
+- It writes **empty stubs** (`{"entries":[]}`) for `deck-tools-runtime-source.json`
+  and `deck-tools-windows-integration.json`. Nothing in the repo generates them.
+- It adds `/windows/docs/` to `.git/info/exclude`, so the files never show in
+  `git status` or a PR.
+
+The tools from the two stubbed files are missing at run time, mostly
+`browser.*` and some shell and account tools. Their tests fail (see §6). Tools
+registered in C#, such as Projects, Tasks, Servers, Receiver, Hoot, Code and
+Accounts, still load.
 
 **Better fix:** open an issue upstream asking for `windows/docs/contracts/` to be
 published. That could be the first contribution to `asadev/terminaldeck`.
@@ -120,10 +126,14 @@ dotnet restore TerminalDeck.slnx
 dotnet build src\TerminalDeck.App\TerminalDeck.App.csproj -c Debug -p:Platform=x64
 ```
 
-Building the App also builds Keeper, ToolBridge and Askpass through project
-references. Output goes to
-`windows\src\TerminalDeck.App\bin\x64\Debug\net10.0-windows10.0.19041.0\`
-(look in a `win-x64\` subfolder if the exe is not directly there):
+**First build on this machine (2026-11-03):** it succeeded with **0 warnings
+and 0 errors in 70 s**, including the first NuGet restore; the Windows App SDK
+restore took about 32 s of that. That was with the local contracts from §2.
+
+Building the App also builds Core, Platform.Windows, Keeper, ToolBridge and
+Askpass through project references. The output (122 MB, 132 files) goes to
+`windows\src\TerminalDeck.App\bin\x64\Debug\net10.0-windows10.0.19041.0\`,
+with no `win-x64\` subfolder:
 
 ```
 TerminalDeck.App.exe
@@ -239,6 +249,35 @@ dotnet test src\TerminalDeck.App\Views\Windows\Tests\TerminalDeck.Shell.Tests.cs
 Only Core.Tests is part of a solution (`TerminalDeck.slnx`, or
 `TerminalDeck.Core.slnf` for Core alone), so the others need the explicit
 `.csproj` path. All the paths above were checked against the tree on 2026-11-03.
+
+### Core.Tests baseline on this machine (2026-11-03, upstream 169cd5e plus the local contracts)
+
+**828 total: 734 passed, 94 failed, 0 skipped (20 s).** Before a PR, compare against
+this list. A change should not add failures; failures that were already here are not yours.
+
+| Failures | Error | Cause |
+|---|---|---|
+| 31 | `InvalidOperationException: No process is associated with this object.` from `ChatCliConnection.DisposeAsync` (`Core/Chats/ChatCliConnection.cs:153`) | **The tests assume macOS.** `ChatFixture.cs:90` and `ChatProtocolTests.cs:44,61` launch `/usr/bin/python3` with `PATH=/usr/bin:/bin`, so the fake CLI never starts on Windows. `DisposeAsync` then calls `HasExited` on a process that never started, and that exception hides the real error. Both problems are worth fixing upstream. |
+| 22 | `ArgumentException: This tool has no source contract.` | **Local stubs.** The tool's contract would be in one of the two empty JSON files. |
+| 15 | `InvalidOperationException: Sequence contains no matching element` (`.Single(...)` lookups of `browser.*` and other tools) | Most likely the local stubs. |
+| 9 | `Assert.Equal() Failure: Strings differ`. Example: `WindowsSignInTests` expects `...\chosen/claude.exe` and gets `...\chosen\claude.exe` | **The tests assume macOS**: they hard-code `/` separators. Windows correctly produces `\`. |
+| 6 | `ArgumentException: Choose an absolute scratch data folder.` (`McpTests.Manager`, `McpTests.cs:221`) | **The tests assume macOS**: Unix-style paths are not fully qualified on Windows. |
+| 3 | `Assert.Equal() Failure: Values differ` (`DeckToolsAccessTests` for `browser_page`, `browser_read`, `browser_windows`) | Local stubs (missing browser tools) |
+| 3 | `HttpRequestException: Error while copying content to a stream.` (Receiver HTTP) | Not investigated |
+| 2 | `McpRefusal: An unexpected tool argument was supplied.` | Probably local stubs |
+| 1 | `IOException: A required privilege is not held by the client` (td-receiver temp folder) | Creating a symlink on Windows needs Developer Mode or admin rights |
+| 1 | `UnauthorizedAccessException: Access to the path ... is denied.` | Not investigated |
+| 1 | (no message parsed) | Not investigated |
+
+To get the list again:
+`dotnet test tests\TerminalDeck.Core.Tests\TerminalDeck.Core.Tests.csproj 2>&1 | Out-File $env:TEMP\core-tests.log`,
+then search the log for `Failed `.
+
+**Possible first PRs upstream:**
+1. Ask upstream to publish `windows/docs/contracts/`. File it as an issue.
+2. Make the chat fixtures portable: find `python`/`python3` on PATH instead of `/usr/bin/python3`.
+3. Make `ChatCliConnection.DisposeAsync` safe when `Start()` threw, so it does not call `HasExited` on a process that never started.
+4. Use `Path.Combine` and `Path.GetTempPath()` in `WindowsSignInTests` and `McpTests`.
 
 **Windows integration tests** need environment variables and upstream's
 `C:\TD\...` lab layout. They throw if a variable is missing:

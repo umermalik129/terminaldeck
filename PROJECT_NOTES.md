@@ -103,9 +103,13 @@ TerminalDeck.App.exe  (WinUI window; single instance per data folder)
 - **`windows/docs/` is missing.** The MCP contract JSONs embedded by
   `TerminalDeck.Core.csproj` and the docs that READMEs cite
   (`WIN-PROGRESS.md`, `WIN-PARITY-REQUESTS.md`) are not in the public tree. The
-  build is expected to fail until that is fixed. See
-  [WINDOWS_DEV.md §2](WINDOWS_DEV.md#2-known-blocker-missing-mcp-contract-files)
-  for a local workaround. This is a good first upstream issue.
+  build fails with CS1566 (confirmed 2026-11-03). The local workaround is
+  `tools/make-local-contracts.ps1`, described in
+  [WINDOWS_DEV.md §2](WINDOWS_DEV.md#2-known-blocker-missing-mcp-contract-files).
+  This is a good first upstream issue.
+- **Several Core tests assume macOS**: `/usr/bin/python3`, `/` path separators,
+  and Unix-style absolute paths. On Windows 734 of 828 pass. See the baseline in
+  [WINDOWS_DEV.md §6](WINDOWS_DEV.md#coretests-baseline-on-this-machine-2026-11-03-upstream-169cd5e-plus-the-local-contracts).
 - No CI workflows ship in `.github/`; only issue and PR templates do.
 - Many scripts assume the maintainer's lab PC: the `C:\TD\...` layout,
   `tools/win/*`, lane branches like `lane/win-v3b`, and a bare repo at
