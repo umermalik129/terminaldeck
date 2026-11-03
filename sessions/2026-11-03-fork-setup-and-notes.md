@@ -454,6 +454,53 @@ hosts the inbox ConPTY and prints its output):
   `C:\TD\wt\conpty-control-cells`, so the uncommitted diagnostics in the main
   checkout stayed put.
 
+## Part 12: "session ended" notice, and the push
+
+**Context.** After the dev keeper restart, the user "couldn't type". They were
+typing into the old tabs, whose sessions had ended (state Exited), but the
+tabs still showed their last screen with nothing saying so.
+
+**Fix on `fix/windows-session-ended-notice` (caae39b):**
+- `SessionPane` shows a notice that stays up until dismissed: "This session
+  has ended, so typing here does nothing. Open a new tab to keep working."
+  Typing into the tab brings it back and no longer sends input.
+- **Found on the way (upstream bug).** A shell that exits on its own reaches
+  the pane as a `reset` event, from `RestoreWorkerReplayAsync`. The pane only
+  refreshed on `exit` and `status`, so the UI never learned the shell had
+  ended, and the sidebar kept it under Running. It now refreshes on `reset`
+  too.
+- **Tested in data2**, by ending the shell process from outside (Stop-Process
+  on the worker's child):
+  - restarting the app shows the notice on attach;
+  - a live exit shows it about 55 ms later, and the sidebar drops the tab
+    from Running.
+  - Temporary logging showed that before the `reset` change, no `State`
+    change reached the pane.
+
+**Pushed to origin** with the user's go-ahead ("add commit create pr"), all
+based on upstream/main 169cd5e:
+
+| Branch | Head |
+|---|---|
+| `fix/windows-titlebar-drag` | a8b0873 |
+| `fix/windows-terminal-smooth-text` | b0e46c4 |
+| `fix/windows-focus-terminal` | 5f45d1c |
+| `fix/windows-smooth-tab-switch` | d799055 |
+| `fix/windows-toolbar-icons-ring` | e79332c |
+| `feat/windows-terminal-shell` | 8466fe2 |
+| `fix/windows-conpty-control-cells` | 95711de |
+| `fix/windows-session-ended-notice` | caae39b |
+
+- No pair of branches conflicts (checked with `git merge-tree`), and
+  `local/try-all` merges all eight and builds with 0 warnings.
+- **The PRs aren't opened yet.** `gh pr create` on asadev was denied by the
+  Claude Code permission classifier ("Create Public Surface"). The user runs
+  `tools/create-draft-prs.ps1`, which takes titles and bodies from `prs/*.md`
+  and skips PRs that already exist; `-DryRun` checks without creating.
+- **Diagnostics removed** from `local/try-all`. They're saved as
+  `scratchpad\typing-diag-final.patch` and `scratchpad\TdTiming-final.cs`.
+  The user's running dev app still has them until its next rebuild.
+
 ## Next
 
 - [x] Install .NET SDK 10.0.4xx
@@ -464,7 +511,8 @@ hosts the inbox ConPTY and prints its output):
 - [ ] User tries the title bar, then push it and open a draft PR upstream
 - [ ] User checks the four new fix branches in the dev app (from `local/try-all`), then push and open a draft PR per branch
 - [x] Shell choice setting (`feat/windows-terminal-shell`). Possible follow-up: a dropdown on the terminal + button to pick per tab
-- [ ] Before pushing `fix/windows-smooth-tab-switch`: `errors.log` has 2 unhandled `ArgumentException: Choose an open window tab.`. They come from `WorkspaceState.Focus` via `pane.GotFocus` in `RenderNode` (upstream has the same handler), at 13:28 UTC while sessions were dying under restarts. Check whether cached pane sets let a closed tab's pane take focus.
+- [ ] User runs `.dev-notes\tools\create-draft-prs.ps1` to open the 8 draft PRs on asadev
+- [ ] Open question, noted in the `fix/windows-smooth-tab-switch` PR: `errors.log` has 2 unhandled `ArgumentException: Choose an open window tab.`. They come from `WorkspaceState.Focus` via `pane.GotFocus` in `RenderNode` (upstream has the same handler), at 13:28 UTC while sessions were dying under restarts. Check whether cached pane sets let a closed tab's pane take focus.
 - [ ] Typing-after-a-pause fix (`fix/windows-conpty-control-cells`): user restarts the dev keeper (this closes the open terminals), then confirms with Claude Code in a new tab. Possible upstream report to Claude Code: it writes a raw SI on its idle redraw
 - [ ] User tries tab dragging and reordering again after 1a67cb7. They reported "tab reorder is not working": with `ClickMode.Press`, `FocusPane` moved focus into the WebView2 synchronously inside the button's PointerPressed, and a pressed ButtonBase that loses focus releases capture, so `CanDrag` never starts. Fix: focus only on release, drop or key up. **Not verified by hand yet.** If it still fails, fall back to select-on-release (upstream behaviour).
 - [ ] PowerShell input latency: each keystroke opens new pipes app→keeper→worker (`KeeperClient.cs:29-59`, `DurableSessionProcessKeeper.cs:91-109`); the global keeper `gate` holds across worker round trips

@@ -38,8 +38,4 @@ I used a hit-test probe, a local script: it finds the title-bar buttons through 
 
 Not tested yet: Windows 11, scaling above 100%, and dragging a popped-out tab window by hand.
 
-### Screenshots
-
-(before/after: to add)
-
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
