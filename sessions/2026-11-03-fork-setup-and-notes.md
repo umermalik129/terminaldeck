@@ -356,6 +356,46 @@ diagnostic builds logging press, move, capture-lost, slide and focus changes:
 | Other directions | | correct |
 | Plain click | | selects without moving; terminal gets the cursor after release |
 
+## Part 10: terminal tab naming and the "typing after a pause" glitch
+
+**Naming.** Commit 8466fe2 on `feat/windows-terminal-shell`:
+- Terminals opened by the user are titled with the project name, or the
+  folder leaf outside a project.
+- The tab and the sidebar `SessionPicture` show the shell program's own icon:
+  the `ShellIcons` helper calls `StorageFile.GetThumbnailAsync` on
+  cmd.exe / powershell.exe / pwsh.exe, cached.
+- New local terminals record `Shell = "powershell"` explicitly. Sessions with
+  `Shell == null` (old ones, remote servers) keep the generic glyph.
+- Verified in data2: tabs read "admin" with the black cmd icon or the blue
+  PowerShell icon, and the sidebar shows the icon, "admin" and
+  "Command Prompt".
+- Tried and reverted: prefixing `WindowLocationLabel` with the shell. That
+  label feeds the pane header's *folder chip*, which shows only the last path
+  segment and is announced as "Project folder: …".
+
+**Typing glitch.** The user reports: in cmd and PowerShell tabs, after pausing
+a few seconds, the next key lands one cell back, so a trailing space vanishes
+or the previous letter is replaced.
+- **Not reproduced** in a fresh data2 instance, either by DevTools
+  `Input.insertText` or by real SendInput keys with an 8–12 s pause. Inputs
+  were exactly the typed characters (no BS/DEL); there was no reset, replay
+  or resize during the pause; the screen showed `echo a b` correctly.
+- Not system-wide: the HKCU Input settings for hardware-keyboard prediction
+  and autocorrect are unset, the only layout is en-US, and no text expander
+  is running. PowerToys runs, but not Quick Accent or Keyboard Manager.
+- **Hypothesis:** the user's sessions went through several app restarts with
+  `-KeepKeeper`. Each reattach rebuilds the screen from a replay, which the
+  code admits "can sit a cell away". Also suspect: Edge text input (TSF) with
+  real typing habits.
+- **Diagnostics:** the user's dev window (`local/try-all` plus the
+  uncommitted `typing-diag.patch.lf` and `TdTiming-mask.cs` in the scratchpad)
+  logs input and keeper events with printable characters masked to
+  `.`/`_`, keeping control and escape sequences, to
+  `%TEMP%\td-timing-<pid>.log`.
+  - Ask the user for a time when it happens, then look for
+    BS/DEL/ESC sequences, reset, replay or resize around it.
+  - **Remove the diagnostics before any PR build.** They're local only.
+
 ## Next
 
 - [x] Install .NET SDK 10.0.4xx
