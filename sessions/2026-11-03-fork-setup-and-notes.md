@@ -295,6 +295,38 @@ captures Settings off-screen.
     wrong. The protocol version, secret and instance were unchanged, so a kept
     keeper only matters when keeper code changes.
 
+## Part 9: tab reordering
+
+The user reported "reorder still not working" after 1a67cb7.
+
+**Automated real-input test** (scratchpad):
+- `setup-instance.ps1`: a fresh data2 instance with tabs W1, Command Prompt
+  and PowerShell.
+- `drag-test.ps1`: brings the window topmost and on-screen, does a SendInput
+  drag, reads the tab order through UI Automation, then restores the cursor
+  and puts the window back off-screen.
+
+**Pitfalls:**
+- My first INPUT struct was 48 bytes (two extra pad ints). SendInput failed
+  with error 87 while SetCursorPos still worked; on x64 INPUT is **40 bytes**.
+- **The PC was locked.** `WindowFromPoint` returned LockApp's
+  "Windows Default Lock Screen" CoreWindow over the whole screen, so every
+  synthetic click went there. The "no reorder" results, upstream included,
+  prove nothing. Check `GetForegroundWindow` → LockApp before any input test.
+
+**Change.** Commit d799055 on `fix/windows-smooth-tab-switch` replaces
+`CanDrag` with in-strip sliding:
+- `UIElement.Translation`, with a 150 ms `Vector3Transition` for the tabs the
+  dragged one passes;
+- `WorkspaceState.Move` on release;
+- `StartDragAsync` when the pointer leaves the strip vertically, to keep
+  pop-out and merge;
+- a slide is cancelled on `PointerCaptureLost` only if no release follows,
+  because the capture loss arrives before `PointerReleased`.
+
+**Not yet verified with real input.** Run `drag-test.ps1` once the PC is
+unlocked and the user agrees.
+
 ## Next
 
 - [x] Install .NET SDK 10.0.4xx
