@@ -327,6 +327,35 @@ The user reported "reorder still not working" after 1a67cb7.
 **Not yet verified with real input.** Run `drag-test.ps1` once the PC is
 unlocked and the user agrees.
 
+**Real-input test, run with the user's go-ahead.** These findings came from
+diagnostic builds logging press, move, capture-lost, slide and focus changes:
+
+1. **Inactive window.** The press activated the window, and
+   `FocusInputOnActivation` moved focus to the terminal WebView2 while the
+   button was held. The tab button lost focus, released capture after 15 ms,
+   and the slide never started.
+   - `InputKeyboardSource.GetKeyStateForCurrentThread(LeftButton)` does **not**
+     report mouse buttons for pointer input, so the first fix (3e46c30) didn't
+     help.
+   - The real fix (5f45d1c) tracks presses on the window root: set on
+     PointerPressed, cleared on release, cancel or deactivate.
+2. **Harness.** `SetCursorPos` gives sparse pointer updates while a button is
+   held; use absolute `SendInput` moves (`MOUSEEVENTF_MOVE|ABSOLUTE`, 0x8001)
+   instead. Also, `GetGUIThreadInfo` showed no Win32 capture during a XAML
+   pointer capture; delivery relies on implicit pointer capture.
+3. **Harness.** A test window that starts minimized shows UI Automation zero
+   elements. `setup-instance.ps1` now restores it and waits for the
+   "New terminal tab" button.
+
+**Result with the final combined build:**
+
+| Test | Before | After |
+|---|---|---|
+| Drag PowerShell onto W1 (inactive window) | W1 \| CP \| PS | PS \| W1 \| CP |
+| Drag W1 back | PS \| W1 \| CP | W1 \| PS \| CP |
+| Other directions | | correct |
+| Plain click | | selects without moving; terminal gets the cursor after release |
+
 ## Next
 
 - [x] Install .NET SDK 10.0.4xx
