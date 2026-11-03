@@ -284,7 +284,7 @@ captures Settings off-screen.
 - [ ] User tries the title bar, then push it and open a draft PR upstream
 - [ ] User checks the four new fix branches in the dev app (from `local/try-all`), then push and open a draft PR per branch
 - [x] Shell choice setting (`feat/windows-terminal-shell`). Possible follow-up: a dropdown on the terminal + button to pick per tab
-- [ ] User tries tab dragging and reordering with select-on-press
+- [ ] User tries tab dragging and reordering again after 1a67cb7. They reported "tab reorder is not working": with `ClickMode.Press`, `FocusPane` moved focus into the WebView2 synchronously inside the button's PointerPressed, and a pressed ButtonBase that loses focus releases capture, so `CanDrag` never starts. Fix: focus only on release, drop or key up. **Not verified by hand yet.** If it still fails, fall back to select-on-release (upstream behaviour).
 - [ ] PowerShell input latency: each keystroke opens new pipes app→keeper→worker (`KeeperClient.cs:29-59`, `DurableSessionProcessKeeper.cs:91-109`); the global keeper `gate` holds across worker round trips
 - [ ] Remaining tab-switch frame gaps (WebView2 reparenting)
 - [ ] Check timings in a Release build
