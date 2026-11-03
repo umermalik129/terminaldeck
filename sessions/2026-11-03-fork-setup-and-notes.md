@@ -395,6 +395,64 @@ or the previous letter is replaced.
   - Ask the user for a time when it happens, then look for
     BS/DEL/ESC sequences, reset, replay or resize around it.
   - **Remove the diagnostics before any PR build.** They're local only.
+- The hypothesis above was wrong; see Part 11.
+
+## Part 11: the cause of the typing glitch, Windows 10 ConPTY and C0 controls
+
+The user confirmed it happens inside Terminal Deck's PowerShell and Command
+Prompt tabs. The masked log caught it: every affected tab was running
+**Claude Code**. After a pause, the first keystroke produced this output:
+
+```
+input  .                      (the typed letter)
+event  ESC[?2004h<0F>         (Claude Code's redraw: bracketed paste on, then a raw SI)
+event  <BS>.                  (ConPTY: back one column, then the letter)
+```
+
+**Cause, reproduced outside the app** (`scratchpad\si-probe\probe.cs`
+hosts the inbox ConPTY and prints its output):
+- Windows 10's conhost (19041 branch) stores most C0 controls as **cells**,
+  the CP437 glyphs (SI = ☼), instead of running or dropping them. Newer
+  console hosts reportedly drop them. Not checked here: there's no
+  Windows 11 machine.
+- In **code page 65001** (Claude Code selects it) ConPTY forwards the raw
+  byte and counts it as one column. In 437 it sends the glyph (`☼`), which
+  is harmless.
+- xterm.js treats SI/SO as charset shifts and VT/FF as line feeds, and
+  ignores the rest. None of them take a column, so the terminal is one column
+  behind ConPTY, and ConPTY's next `BS` lands one cell too far left.
+- The affected set, measured: 0x01–0x06, 0x0B, 0x0C, 0x0E–0x1A, 0x1C–0x1F.
+  NUL, BEL, BS, TAB, LF, CR, ESC and DEL take no cell.
+
+**Fix, on `fix/windows-conpty-control-cells` (95711de):**
+- New `ConPtyControlCells`: on Windows builds below 22000 only, the ConPTY
+  output pump rewrites those bytes to a space, in place. A C0 byte never
+  occurs inside a UTF-8 sequence, so each chunk can be handled alone.
+- Tests are in `Tests\ConPtyControlCellTests.cs` (TerminalDeck.Windows.Tests):
+  the byte map, escape and UTF-8 passthrough, and an end-to-end run of
+  PowerShell under ConPTY with `chcp 65001`. The end-to-end test **fails
+  without the fix**.
+  Run them with
+  `dotnet test src\TerminalDeck.Platform.Windows\Tests\TerminalDeck.Windows.Tests.csproj --filter "FullyQualifiedName~ConPtyControlCellTests|FullyQualifiedName~TerminalIoTests"`.
+  The build needs `windows\docs\contracts` copied into the worktree.
+- **In the real app** (data2), `idle-redraw.js` mimics Claude Code: it writes
+  "ab ", pauses, writes `ESC[?2004h` plus SI, then `\b` plus "c".
+  - Unfixed keeper: `CELLTEST abc END`, the space eaten exactly as reported.
+  - Fixed keeper: `CELLTEST ab c END`.
+
+**Gotchas found on the way:**
+- The fix lives in the **session worker** (keeper bundle). A build with
+  `-p:OutDir=<scratch>` copies the keeper from `TerminalDeck.Keeper\bin\...`
+  (`CopyKeeper`), which a global OutDir doesn't update. Build
+  `TerminalDeck.Keeper.csproj` first.
+- The keeper runs from `bin\...\keeper\<bundle id>`, so `-KeepKeeper`
+  rebuilds never reach running sessions. New terminals get the fix only
+  after a keeper restart, which ends the open terminals.
+- `ScreenForProofAsync` reads `document.body.innerText`. That is empty with
+  the WebGL renderer, so read results from a `PrintWindow` screenshot.
+- The fix branch was built in a separate worktree,
+  `C:\TD\wt\conpty-control-cells`, so the uncommitted diagnostics in the main
+  checkout stayed put.
 
 ## Next
 
@@ -406,6 +464,7 @@ or the previous letter is replaced.
 - [ ] User tries the title bar, then push it and open a draft PR upstream
 - [ ] User checks the four new fix branches in the dev app (from `local/try-all`), then push and open a draft PR per branch
 - [x] Shell choice setting (`feat/windows-terminal-shell`). Possible follow-up: a dropdown on the terminal + button to pick per tab
+- [ ] Typing-after-a-pause fix (`fix/windows-conpty-control-cells`): user restarts the dev keeper (this closes the open terminals), then confirms with Claude Code in a new tab. Possible upstream report to Claude Code: it writes a raw SI on its idle redraw
 - [ ] User tries tab dragging and reordering again after 1a67cb7. They reported "tab reorder is not working": with `ClickMode.Press`, `FocusPane` moved focus into the WebView2 synchronously inside the button's PointerPressed, and a pressed ButtonBase that loses focus releases capture, so `CanDrag` never starts. Fix: focus only on release, drop or key up. **Not verified by hand yet.** If it still fails, fall back to select-on-release (upstream behaviour).
 - [ ] PowerShell input latency: each keystroke opens new pipes app→keeper→worker (`KeeperClient.cs:29-59`, `DurableSessionProcessKeeper.cs:91-109`); the global keeper `gate` holds across worker round trips
 - [ ] Remaining tab-switch frame gaps (WebView2 reparenting)

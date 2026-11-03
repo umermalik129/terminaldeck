@@ -228,6 +228,15 @@ Things to know:
   - To build without stopping a running dev app, which locks its exe:
     `dotnet build ... "-p:OutDir=<scratch folder>\"`. Then start that exe with
     `TD_DEV=1 --user-data-dir C:\TD\dev\data2`.
+  - **Build `src\TerminalDeck.Keeper\TerminalDeck.Keeper.csproj` first** when
+    the change touches the keeper or the session worker (Platform.Windows,
+    ConPTY). The app's `CopyKeeper` target bundles the keeper from
+    `TerminalDeck.Keeper\bin\x64\Debug\...`, and a global `OutDir` builds the
+    keeper elsewhere. Without this step the scratch app runs a **stale keeper**.
+    `<OutDir>\keeper-location.txt` names the bundle in use.
+  - The keeper runs from `bin\...\keeper\<bundle id>`, so `-KeepKeeper`
+    rebuilds never change running sessions. Worker changes reach new
+    terminals only after a keeper restart.
 
 **Logs:**
 - `C:\TD\dev\data\logs\errors.log` is the only log file. It records XAML,
