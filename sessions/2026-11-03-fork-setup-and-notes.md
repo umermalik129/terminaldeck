@@ -121,13 +121,131 @@ template, and tools (`start-feature.ps1`, `run-windows-debug.ps1`,
 - Your installed Terminal Deck (0.20.3.1, 4 sessions, 10 WebView2 processes)
   was never touched.
 
+## Part 5: first PR branch, draggable title bar
+
+- **Branch:** `fix/windows-titlebar-drag` from `upstream/main` 169cd5e.
+  Commit `a8b0873` is **local only, not pushed yet**; push and PR after the
+  user tries it.
+- **Change:**
+  - `WorkspaceTitleBar` now passes the whole title-bar row to `SetTitleBar`.
+    That's `TitleBarRow` for the main window and `header` for separate tab windows.
+  - It cuts every `ButtonBase`, `TextBox`, `PasswordBox`, `AutoSuggestBox` and
+    `ComboBox` out as `NonClientRegionKind.Passthrough` through
+    `InputNonClientPointerSource`.
+  - The regions are recomputed on `LayoutUpdated` and only sent when they differ
+    from `GetRegionRects`.
+  - Tabs are clipped to the strip's `ScrollViewer`.
+  - Open popups that aren't tooltips also get passthrough, with a recheck on `Popup.Closed`.
+- **Gotchas:**
+  - `GetRegionRects` returns **null** when nothing is set. The first build threw
+    `ArgumentNullException` from `SequenceEqual`, and errors.log caught it.
+  - Passthrough works as **holes in the `InputNonClientPointerSource` window
+    region**, not as a WM_NCHITTEST answer. Sending WM_NCHITTEST directly
+    bypasses the region and still says HTCAPTION. `probe-titlebar.ps1` now
+    checks `GetWindowRgn` and `PtInRegion` first.
+  - UI Automation reports a tab button's bounds as its **label only**, so the
+    probe treats gaps inside the tab strip as "inside a tab".
+- **Verified** with the probe:
+  - 1, 3 and 7 tabs, and sidebar collapsed: all points as expected.
+  - 19 tabs: UI Automation timed out, so I read the region directly. Drag is at
+    0–8, 44–284 and 1060–1264 (client px); holes cover the toggle, the whole
+    strip and the + buttons.
+  - Build has 0 warnings, and there's no errors.log.
+- **Not verified:**
+  - right-click menus over the row;
+  - separate (popped-out) tab windows;
+  - more than 100% scaling;
+  - Windows 11.
+
+  The user should try these by hand.
+- **Tooling:**
+  - The probe was rewritten to find buttons through UI Automation.
+  - `run-windows-debug.ps1` ignores WebView2 children that exit during the stop.
+  - The scratchpad helpers (UI Automation invoke, PrintWindow screenshot)
+    stayed local.
+- The user's next requests are separate branches: smoother tab switching,
+  blurry text and icons, the usage ring design, choosing PowerShell or cmd,
+  and focusing the terminal when the window activates.
+
+## Part 6: user feedback round (smoothness, colour, focus, shell)
+
+The user asked for:
+- smooth tab selection;
+- smooth fonts and icons;
+- the usage ring to match the icons in design and smoothness;
+- the cursor in the terminal when the window activates;
+- whether the shell can be cmd instead of PowerShell.
+
+Later they added "the terminal should be color".
+
+| Finding | Cause | Branch (local commits, **none pushed**) |
+|---|---|---|
+| Terminals monochrome, Claude Code TUI too | **Dev-only.** The dev app was launched from a Claude Code tool shell (`NO_COLOR=1`, `GIT_EDITOR=true`, `GIT_TERMINAL_PROMPT=0`, `CLAUDECODE`, `CLAUDE_CODE_*`), and the app, keeper and sessions inherit it | none. `run-windows-debug.ps1` now clears these |
+| Terminal text "crisp" | xterm WebGL atlas is opaque, so Chromium uses ClearType (colour fringes); the WinUI text around it is grayscale | `fix/windows-terminal-smooth-text` b0e46c4 (`allowTransparency: true`; rebuilding the bundle unchanged reproduced it byte for byte, `npm ci --ignore-scripts` + `node build.mjs`) |
+| Have to click before typing | Nothing refocuses WebView2 on window activation; after a tab click, `FocusPane` ran before the rebuilt pane was loaded | `fix/windows-focus-terminal` cf5bdc6 |
+| Tab switching janky | 2 full rebuilds per click (every chip: XamlReader icons, SVGs, menus) | `fix/windows-smooth-tab-switch` 79e3988 |
+| Toolbar icons uneven, ⋯ specks | 16-pt drawings rendered at 14 px (0.875×); the + buttons beside them use 16 | `fix/windows-toolbar-icons-ring` e79332c |
+| Usage ring small, blurry | 12 px with inset stroke vs the Mac's ~14 pt; dim instead of pulse | same branch |
+| Shell choice | Hard-coded `powershell.exe -NoLogo -NoProfile` (`WindowsProviderLaunchPlanner.cs:15`), with no setting. `pwsh` isn't installed here | not started: proposal to the user |
+
+**Tab-switch timing.** Measured on a Debug build with 4 terminal tabs, in a
+second off-screen instance (`C:\TD\dev\data2`). The temporary `TdTiming.cs`
+instrumentation was never committed; the patches are in the scratchpad only.
+
+| | Before | After |
+|---|---|---|
+| Renders per click | 2 full | 1 panes-only |
+| Render cost | 11–71 ms | 3–14 ms |
+| UI thread busy per click | 35–105 ms | 11–27 ms |
+| First frame | 30–138 ms | 4–49 ms |
+
+- A header rebuild was about 9–13 ms (up to 39 ms); the panes were about 3 ms.
+- The state save fsync is about 2 ms, so it isn't the problem.
+- The title-bar `LayoutUpdated` walk costs about 0.3–0.5 ms, 3–4 times per switch.
+- Some 20–30 ms frame gaps remain. Likely cause: WebView2 being reparented
+  into the new pane holder. Not addressed.
+
+**Side fix.** The cheap `UpdateFocus` path never moved the selected-tab shape,
+divider or ×, which only showed with split panes of the same owner. The
+per-chip restyle fixes that.
+
+**Verified:**
+- All 5 branches compile, and `local/try-all` builds with 0 warnings.
+- The data2 screenshot after a switch shows the selected tab moved, a focused
+  cursor in the terminal, grayscale terminal text (4× zoom), and icons at 16 px.
+
+**Not verified:**
+- the ring visuals (needs an AI session);
+- focus on Alt+Tab (needs real activation);
+- Release build timings;
+- Windows 11.
+
+**Integration branch.** The local-only `local/try-all` merges all the fix
+branches, and the dev app runs from it. See GIT_WORKFLOW.md.
+
+**Script fixes:**
+- clears tool environment variables (by `SetEnvironmentVariable`, because
+  `Remove-Item env:` fails on an empty value);
+- matches the exact data folder (`data` vs `data2`);
+- ignores WebView2 children that exit during a stop.
+
+**Restarts.** The first clean-environment restart ended the user's Claude Code
+session in the dev app (iPresent project), which can be resumed. Later rebuilds
+used `-KeepKeeper`.
+
 ## Next
 
 - [x] Install .NET SDK 10.0.4xx
 - [x] Update Windows App Runtime 1.8 to >= 8000.994.2142.0
 - [x] First build (passes with the local contracts)
 - [x] First launch, clean (with the 17 placeholder contracts)
-- [ ] Decide on a first PR: draggable title bar, Windows-portable Core tests, or the missing `windows/docs` issue
+- [x] Decide on a first PR: draggable title bar (`fix/windows-titlebar-drag`, committed locally)
+- [ ] User tries the title bar, then push it and open a draft PR upstream
+- [ ] User checks the four new fix branches in the dev app (from `local/try-all`), then push and open a draft PR per branch
+- [ ] Shell choice: setting plus a + dropdown (Windows PowerShell / PowerShell 7 if installed / Command Prompt), if the user wants it
+- [ ] PowerShell input latency: each keystroke opens new pipes app→keeper→worker (`KeeperClient.cs:29-59`, `DurableSessionProcessKeeper.cs:91-109`); the global keeper `gate` holds across worker round trips
+- [ ] Remaining tab-switch frame gaps (WebView2 reparenting)
+- [ ] Check timings in a Release build
 - [ ] Look into the ~12 s keeper start delay
 - [ ] Install Visual Studio 2026 with the WinUI workload, or VS Code with C# Dev Kit
 - [ ] Open an upstream issue about the missing `windows/docs/contracts/`

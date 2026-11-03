@@ -209,6 +209,25 @@ Things to know:
   `C:\TD\share-target\<SID>\root.txt`. That is harmless.
 - **Don't leave `TD_*_PROOF` or `TD_W12_OFFSCREEN` variables set** in your
   shell. Some of them move the window to x = -20000 or start it unfocused.
+- **The app passes its environment on to every terminal and AI session.**
+  - On 2026-11-03 the dev app was launched from a Claude Code tool shell. That
+    shell has `NO_COLOR=1`, `GIT_EDITOR=true`, `GIT_TERMINAL_PROMPT=0`,
+    `CLAUDECODE=1` and `CLAUDE_CODE_*` set.
+  - The result: every terminal was monochrome, including Claude Code's own
+    TUI; `git commit` got an editor that exits immediately; and a nested
+    `claude` looked like a child session.
+  - The run script now clears those variables before launching, unless you set
+    one yourself in User or Machine env.
+  - Sessions are planned inside the **keeper**. After changing the environment,
+    restart the keeper too (no `-KeepKeeper`).
+  - The installed app starts from Explorer and is not affected.
+- **Second instance for experiments:** use `-DataDir C:\TD\dev\data2` so it
+  never touches the window you're using.
+  - The process filter matches the exact folder, so `data` and `data2` don't
+    stop each other.
+  - To build without stopping a running dev app, which locks its exe:
+    `dotnet build ... "-p:OutDir=<scratch folder>\"`. Then start that exe with
+    `TD_DEV=1 --user-data-dir C:\TD\dev\data2`.
 
 **Logs:**
 - `C:\TD\dev\data\logs\errors.log` is the only log file. It records XAML,

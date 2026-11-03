@@ -46,7 +46,7 @@ function Stop-TdProcesses([switch]$IncludeKeeper) {
     $pids = @()
     foreach ($n in $names) {
         Get-CimInstance Win32_Process -Filter "Name='$n'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($DataDir, [StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+            Where-Object { $_.CommandLine -and $_.CommandLine -match ([regex]::Escape($DataDir) + '(["\\\s]|$)') } |
             ForEach-Object { $pids += $_.ProcessId }
     }
     $identity = Join-Path $DataDir 'keeper\supervisor.identity.json'
@@ -57,7 +57,8 @@ function Stop-TdProcesses([switch]$IncludeKeeper) {
     }
     foreach ($id in ($pids | Select-Object -Unique)) {
         $p = Get-Process -Id $id -ErrorAction SilentlyContinue
-        if ($p) { Write-Host "Stopping $($p.ProcessName) ($id)"; Stop-Process -Id $id -Force }
+        # WebView2 children exit on their own once the app is gone; that race is fine.
+        if ($p) { Write-Host "Stopping $($p.ProcessName) ($id)"; try { Stop-Process -Id $id -Force -ErrorAction Stop } catch [Microsoft.PowerShell.Commands.ProcessCommandException] { } }
     }
 }
 
@@ -97,6 +98,15 @@ $exe = Get-ChildItem -Path $outDir -Recurse -Filter 'TerminalDeck.App.exe' -Erro
 if (-not $exe) { throw "TerminalDeck.App.exe not found under $outDir. Build first." }
 
 New-Item -ItemType Directory -Force $DataDir | Out-Null
+# The app, its keeper and every terminal or AI session inherit this process's
+# environment. Started from a tool shell (Claude Code sets NO_COLOR=1,
+# GIT_EDITOR=true, GIT_TERMINAL_PROMPT=0, CLAUDECODE, CLAUDE_CODE_*), terminals
+# lose colour, git commit gets an editor that exits at once, and a nested claude
+# thinks it is a child session. Launch with the user's normal environment.
+$toolVars = '^(NO_COLOR|FORCE_COLOR|NODE_DISABLE_COLORS|CLAUDECODE|CLAUDE_CODE_.+|CLAUDE_PID|GIT_EDITOR|GIT_ASKPASS|GIT_TERMINAL_PROMPT)$'
+foreach ($name in @(Get-ChildItem env: | Where-Object { $_.Name -match $toolVars } | ForEach-Object Name)) {
+    if (-not [Environment]::GetEnvironmentVariable($name, 'User') -and -not [Environment]::GetEnvironmentVariable($name, 'Machine')) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
+}
 $env:TD_DEV = '1'
 if ($CrashDiagnostics) { $env:TD_CRASH_DIAGNOSTICS = '1' }
 Write-Host "Launching $($exe.FullName)"

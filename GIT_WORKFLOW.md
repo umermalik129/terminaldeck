@@ -47,6 +47,20 @@ basing them on a stale `origin/main`.
 
 See [WINDOWS_DEV.md](WINDOWS_DEV.md).
 
+**Trying several fixes together:** each PR branch starts from `upstream/main`,
+so building one branch shows only that fix. The local-only branch
+`local/try-all` merges them all for the dev app:
+
+```powershell
+git switch local/try-all
+git merge --no-edit fix/windows-a fix/windows-b    # after committing on each fix branch
+.\.dev-notes\tools\run-windows-debug.ps1
+```
+
+**Never push `local/try-all`, and never base a PR on it.** When editing two
+branches that touch the same file, keep the edits a few lines apart so the
+merge stays clean.
+
 ### 3. Commit and push to the fork
 
 ```powershell
