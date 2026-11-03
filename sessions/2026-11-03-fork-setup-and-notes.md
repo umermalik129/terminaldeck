@@ -233,6 +233,47 @@ branches, and the dev app runs from it. See GIT_WORKFLOW.md.
 session in the dev app (iPresent project), which can be resumed. Later rebuilds
 used `-KeepKeeper`.
 
+## Part 7: shell setting and Chrome-like tab switching
+
+The user asked to "add the shell setting with cmd option" and said "the tabs
+are not smooth yet, it should work like the chrome tabs".
+
+**`feat/windows-terminal-shell` 8f9700f** (local, not pushed):
+- **Choice:** Settings → General → *Terminal shell*: Windows PowerShell
+  (default), PowerShell 7 (selectable only if `pwsh.exe` is on PATH or in
+  `Program Files\PowerShell\7`; not installed here), and Command Prompt.
+- **Session pinning:** a new `SessionDefinition.Shell` field pins the shell per
+  session.
+- **Scope:** only `StartShellForProjectAsync` applies the setting. That covers
+  the + button, the New session picker and project menus. Agents, MCP tools and
+  proofs keep Windows PowerShell.
+- **Labels:** tab titles, sidebar subtitles and the picker name the shell.
+- **Tests:** 12 `TerminalShellTests` pass. The failing Core.Tests names are
+  identical to upstream/main (52 vs 52). The old 94-failure baseline predates
+  the 17 placeholder contracts.
+- **Verified** in a fresh data2 instance with `{"TerminalShell":"cmd"}`: the
+  keeper started `C:\WINDOWS\system32\cmd.exe`, the tab and subtitle read
+  "Command Prompt", and the Settings row renders.
+
+**`fix/windows-smooth-tab-switch` +78dfdc2 +79e8acd:**
+- **Kept pane sets:** rendered panes are kept per (owner, tabs shown) and only
+  their visibility toggles; a view moves only when another set needs it.
+- **Select on press:** tab buttons use `ClickMode.Press`, as in Chrome.
+- **Measured** (data2, Debug, 4 tabs, after warm-up): every switch reused its
+  panes. Render 1–2.6 ms, whole click about 10 ms, first frame 3–32 ms.
+- **Outlier:** one earlier run showed a ~90–160 ms click. Finer logs showed no
+  slow step, so it was outside interference.
+
+**Not verified:**
+- dragging tabs by hand with `ClickMode.Press`;
+- the ring in an AI session;
+- Alt+Tab focus.
+
+**Helper scripts (scratchpad):** `switch-tabs.ps1` now restores a minimized
+window, because a relaunch remembered an off-screen position and came up
+minimized, and UI Automation then finds no buttons. `settings-shot.ps1`
+captures Settings off-screen.
+
 ## Next
 
 - [x] Install .NET SDK 10.0.4xx
@@ -242,7 +283,8 @@ used `-KeepKeeper`.
 - [x] Decide on a first PR: draggable title bar (`fix/windows-titlebar-drag`, committed locally)
 - [ ] User tries the title bar, then push it and open a draft PR upstream
 - [ ] User checks the four new fix branches in the dev app (from `local/try-all`), then push and open a draft PR per branch
-- [ ] Shell choice: setting plus a + dropdown (Windows PowerShell / PowerShell 7 if installed / Command Prompt), if the user wants it
+- [x] Shell choice setting (`feat/windows-terminal-shell`). Possible follow-up: a dropdown on the terminal + button to pick per tab
+- [ ] User tries tab dragging and reordering with select-on-press
 - [ ] PowerShell input latency: each keystroke opens new pipes app→keeper→worker (`KeeperClient.cs:29-59`, `DurableSessionProcessKeeper.cs:91-109`); the global keeper `gate` holds across worker round trips
 - [ ] Remaining tab-switch frame gaps (WebView2 reparenting)
 - [ ] Check timings in a Release build
