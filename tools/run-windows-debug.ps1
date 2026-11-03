@@ -40,7 +40,8 @@ function Get-TdNamespace([string]$path) {
 $ns = Get-TdNamespace $DataDir
 
 function Stop-TdProcesses([switch]$IncludeKeeper) {
-    $names = @('TerminalDeck.App.exe')
+    # WebView2 children carry --user-data-dir=<DataDir>\browser\..., so the same filter matches only ours.
+    $names = @('TerminalDeck.App.exe', 'msedgewebview2.exe')
     if ($IncludeKeeper) { $names += 'TerminalDeck.Keeper.exe', 'TerminalDeck.ToolBridge.exe' }
     $pids = @()
     foreach ($n in $names) {
@@ -67,7 +68,11 @@ if ($Clean) {
         $target = "Terminal Deck/$ns/$suffix"
         if ([TdDev.Cred]::CredDelete($target, 1, 0)) { Write-Host "Deleted credential $target" }
     }
-    if (Test-Path $DataDir) { Remove-Item -Recurse -Force $DataDir; Write-Host "Deleted $DataDir" }
+    # Exiting processes can hold files for a moment (WebView2 metrics, the keeper's locks).
+    for ($try = 1; (Test-Path $DataDir) -and $try -le 10; $try++) {
+        try { Remove-Item -Recurse -Force $DataDir -ErrorAction Stop; Write-Host "Deleted $DataDir" }
+        catch { if ($try -eq 10) { throw "Could not delete ${DataDir}: $($_.Exception.Message)" }; Start-Sleep -Milliseconds 500 }
+    }
     return
 }
 
@@ -77,6 +82,10 @@ if ($StopOnly) { return }
 
 $appProj = Join-Path $win 'src\TerminalDeck.App\TerminalDeck.App.csproj'
 if (-not $NoBuild) {
+    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+        # Terminal opened before the SDK was installed: pick up the new PATH from the registry.
+        $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    }
     # -p:Platform is required: CopyKeeper reads ../TerminalDeck.Keeper/bin/$(Platform)/$(Configuration)/...
     dotnet build $appProj -c $Configuration "-p:Platform=$Platform"
     if ($LASTEXITCODE -ne 0) { throw "Build failed (exit $LASTEXITCODE)." }

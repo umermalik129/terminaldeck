@@ -90,12 +90,45 @@ template, and tools (`start-feature.ps1`, `run-windows-debug.ps1`,
 - **The Claude Code permission classifier blocked running it** ("Code from
   External"). The user has to run it themselves; the command is in WINDOWS_DEV.md §1.
 
+## Part 4: runtime installed, first successful launch
+
+- The user's first installer run printed only the help text, which means it
+  got an unrecognized argument and did not install. The trailing
+  `; "exit=..."` in the `!` command probably reached the exe as an argument.
+  Running the bare exe worked. The runtime is now **8000.994.2142.0**, with the
+  Main and DDLM packages.
+- Launch 1 got the window up, but `errors.log` showed `[Shell initialization]
+  ArgumentException: This tool has no source contract.` from
+  `AccountFlowTools.Register` (`AppRuntime.cs:306`, called from
+  `ShellWindow.xaml.cs:101`). The empty stubs were the cause. The UI showed
+  "The session service could not connect". Screenshot:
+  `assets/2026-11-03-launch-1-init-crash.png`.
+- Built a throwaway console program in the scratchpad that calls
+  `McpCatalogue.Load()`: 202 IDs. Diffed that against the IDs registered in
+  `windows/src`, giving 17 missing. `make-local-contracts.ps1` now writes
+  placeholder entries for them.
+- Launch 2, after `-Clean` and a rebuild: **no errors.log, the workspace loads**
+  (W1 tab, empty pane, New session). Screenshot: `assets/2026-11-03-launch-2-ok.png`.
+- **The user reported "not able to drag window".** Measured it with
+  `tools/probe-titlebar.ps1`: only a 48 px strip left of minimize is a caption
+  region. The cause is upstream's XAML (`TitleDragRegion` is `Width="48"`), not
+  our setup. It is a candidate PR (WINDOWS_DEV.md §6).
+- Script fixes:
+  - `run-windows-debug.ps1 -Clean` now also stops the dev WebView2 processes
+    and retries the delete, because the first `-Clean` failed on a locked
+    `BrowserMetrics-*.pma` file.
+  - The script refreshes PATH if `dotnet` is missing.
+- Your installed Terminal Deck (0.20.3.1, 4 sessions, 10 WebView2 processes)
+  was never touched.
+
 ## Next
 
 - [x] Install .NET SDK 10.0.4xx
-- [ ] **Update Windows App Runtime 1.8 to >= 8000.994.2142.0** (installer 1.8.260921001)
+- [x] Update Windows App Runtime 1.8 to >= 8000.994.2142.0
 - [x] First build (passes with the local contracts)
-- [ ] First launch: `.\.dev-notes\tools\run-windows-debug.ps1 -NoBuild`, then check `C:\TD\dev\data\logs\errors.log`
+- [x] First launch, clean (with the 17 placeholder contracts)
+- [ ] Decide on a first PR: draggable title bar, Windows-portable Core tests, or the missing `windows/docs` issue
+- [ ] Look into the ~12 s keeper start delay
 - [ ] Install Visual Studio 2026 with the WinUI workload, or VS Code with C# Dev Kit
 - [ ] Open an upstream issue about the missing `windows/docs/contracts/`
 - [ ] Candidate PR: portable chat test fixtures, plus making `ChatCliConnection.DisposeAsync` safe when Start() failed

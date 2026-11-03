@@ -15,7 +15,7 @@ Upstream ships it for macOS now, and its last Windows release was 0.15.0. See
 | Python | 3.15.2 |
 | WebView2 runtime | 156.0.4314.58 installed |
 | .NET SDK | **10.0.403**, installed 2026-11-03 with `winget install --id Microsoft.DotNet.SDK.10 --version 10.0.403 --exact`. That is the same version upstream tested with. `windows/global.json` pins `10.0.400` with `rollForward: latestPatch`, so only 10.0.4xx SDKs work. |
-| **Windows App Runtime 1.8** | **Too old.** `8000.946.1701.0` is installed, but the app references WindowsAppSDK **1.8.260921001**, which needs **>= 8000.994.2142.0**. The first launch showed the dialog "Required components of the Windows App Runtime are missing". winget's newest package (1.8.10 = 1.8.260710003) does not fix this; you need the 260921001 installer. See §1. |
+| Windows App Runtime 1.8 | **8000.994.2142.0**, installed 2026-11-03 from the 1.8.260921001 installer (see §1). The app references WindowsAppSDK 1.8.260921001, which needs >= 8000.994.2142.0. The older 8000.946.1701.0 caused the dialog "Required components of the Windows App Runtime are missing". winget's newest package (1.8.10 = 260710003) is too old. |
 | Installed Terminal Deck | MSIX **0.20.3.1** (`C:\Program Files\WindowsApps\TerminalDeck_0.20.3.1_x64__...`). It uses the stable channel (`%LOCALAPPDATA%\TerminalDeckStable`) and bundles its own WinAppSDK runtime, so updating the system runtime does not affect it. Dev runs use a different namespace and never touch it. |
 | **IDE** | **none yet.** No Visual Studio, and VS Code is not on PATH. |
 
@@ -114,15 +114,29 @@ The script does three things:
   upstream's `windows/scripts/capture-source-contracts.py` from a temp copy
   with the source path fixed, because the original looks for
   `../td-native-shell/macos/...`.
-- It writes **empty stubs** (`{"entries":[]}`) for `deck-tools-runtime-source.json`
-  and `deck-tools-windows-integration.json`. Nothing in the repo generates them.
+- It writes `deck-tools-windows-integration.json` with **17 placeholder
+  entries**: `accounts.install`, `accounts.sign_in_flow`, `browser.open`,
+  `close`, `windows`, `page`, `profiles`, `read`, `step`, `screenshot` and
+  `handover`, `mcp.callers`, `open` and `remote`, `remote.workspace`,
+  `shell.read` and `ui.workspace`. Each has a permissive schema and a cautious
+  guessed tier. It also writes an empty `deck-tools-runtime-source.json`.
+  Nothing in the repo generates either file.
 - It adds `/windows/docs/` to `.git/info/exclude`, so the files never show in
   `git status` or a PR.
 
-The tools from the two stubbed files are missing at run time, mostly
-`browser.*` and some shell and account tools. Their tests fail (see §6). Tools
-registered in C#, such as Projects, Tasks, Servers, Receiver, Hoot, Code and
-Accounts, still load.
+**Why there are placeholders and not just empty stubs:** `McpDoor.Register`
+(`Core/Mcp/McpDoor.cs:83`) throws `This tool has no source contract.` for any
+tool the code registers that has no contract. With empty stubs, the first
+launch logged that error from `AppRuntime.RegisterTools()` (called at
+`ShellWindow.xaml.cs:101`), which aborted the rest of the shell's `Loaded`
+handler. The visible symptoms were a "The session service could not connect"
+notice and no workspace tabs. The list of 17 is every ID registered in
+`windows/src` minus what `McpCatalogue.Load()` returns. If the log ever shows
+that message again, add the new ID to the list in the script.
+
+Real tiers and schemas for those 17 are unknown, so agents calling them may be
+prompted differently than upstream intends. Test results for MCP tiers on this
+setup don't tell you anything about upstream's behaviour.
 
 **Better fix:** open an issue upstream asking for `windows/docs/contracts/` to be
 published. That could be the first contribution to `asadev/terminaldeck`.
@@ -286,11 +300,46 @@ To get the list again:
 `dotnet test tests\TerminalDeck.Core.Tests\TerminalDeck.Core.Tests.csproj 2>&1 | Out-File $env:TEMP\core-tests.log`,
 then search the log for `Failed `.
 
+### First launch (2026-11-03)
+
+With runtime 8000.994 and the placeholder contracts, the dev build starts
+cleanly, with no `errors.log`. Screenshots are in
+`sessions/assets/2026-11-03-launch-*.png`.
+- The keeper process appears about 12 s after the app starts, in two runs out of
+  two. It is a Debug build on first JIT, so watch whether this is slow every
+  time. It is not investigated yet.
+- **Window dragging is limited by design**, not broken by our setup. See below.
+
+### Title bar: only a 48 px strip drags the window
+
+`ShellWindow.xaml:69,81`: `TitleDragRegion` is column 3 of `TitleBarRow` with
+`Width="48"`, and that element alone is passed to `SetTitleBar`
+(`Views/Windows/WorkspaceTitleBar.cs:20`, where the comment says "Only the
+empty region is a drag surface"). The tab and page-title column (column 1,
+`*`) is client area, even where it is empty.
+
+Measured with `tools/probe-titlebar.ps1`. The probe is read-only: it sends
+`WM_NCHITTEST` to the window's `InputNonClientPointerSource` child.
+- `HTCAPTION` (draggable) only from about 186 to 150 px left of the right edge,
+  the strip just before minimize.
+- `HTCLIENT` everywhere else in the title row: the sidebar header, beside
+  "Sessions", and the empty middle.
+
+Users naturally try to drag from the empty middle and fail. This is a
+**candidate upstream PR**: make the empty title-row space a caption region and
+mark the tabs and buttons as passthrough, for example with
+`InputNonClientPointerSource.SetRegionRects(NonClientRegionKind.Passthrough, ...)`,
+or by giving the drag column the `*` width. Upstream may have chosen 48 px on
+purpose, for the tabs, so ask in the PR. Verify any change with the probe.
+The probe must show `HTCAPTION` in the empty space and `HTCLIENT` over every
+tab and button.
+
 **Possible first PRs upstream:**
 1. Ask upstream to publish `windows/docs/contracts/`. File it as an issue.
 2. Make the chat fixtures portable: find `python`/`python3` on PATH instead of `/usr/bin/python3`.
 3. Make `ChatCliConnection.DisposeAsync` safe when `Start()` threw, so it does not call `HasExited` on a process that never started.
 4. Use `Path.Combine` and `Path.GetTempPath()` in `WindowsSignInTests` and `McpTests`.
+5. Make the empty title-bar space draggable (see above). The user hit this on the first launch.
 
 **Windows integration tests** need environment variables and upstream's
 `C:\TD\...` lab layout. They throw if a variable is missing:
