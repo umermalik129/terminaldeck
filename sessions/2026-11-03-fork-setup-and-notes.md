@@ -516,10 +516,11 @@ State at the end of the session (2026-11-03, checked at wrap-up):
   merges all eight branches, with the diagnostics removed. It was rebuilt with
   `-KeepKeeper`, so the keeper is still bundle `20261103154135211`. That
   bundle was built after the ConPTY fix and has it.
-- **Local git.** `local/try-all` is clean. Worktrees `C:\TD\wt\conpty-control-cells`
-  and `C:\TD\wt\session-ended` still exist, each with a copied
-  `windows/docs/contracts`. Reuse them for PR follow-ups, or remove them
-  with `git worktree remove`. No data2 test instance is running.
+- **Local git.** `local/try-all` is clean. The worktrees under `C:\TD\wt` were
+  removed at the user's request after checking they were clean and matched
+  origin. The branches stay, locally and on origin. A new worktree for a PR
+  follow-up needs `windows/docs/contracts` copied in (`make-local-contracts.ps1`).
+  No data2 test instance is running.
 - **Diagnostics** are in `tools/diag/`: the masked typing log patch,
   `TdTiming.cs`, and the ConPTY probe with its C0 test scripts.
 
