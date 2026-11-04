@@ -1,0 +1,87 @@
+diff --git a/windows/src/TerminalDeck.App/Views/SessionPane.cs b/windows/src/TerminalDeck.App/Views/SessionPane.cs
+index 9458702..7c839e2 100644
+--- a/windows/src/TerminalDeck.App/Views/SessionPane.cs
++++ b/windows/src/TerminalDeck.App/Views/SessionPane.cs
+@@ -92,6 +92,8 @@ public sealed partial class SessionPane : Grid
+                 case "findResult": TerminalFindResult(body); break;
+                 case "contextMenu": ShowTerminalMenu(); break;
+                 case "ready":
++                  TdTiming.Log($"[{draft.Title}] page ready");
++                  if (Environment.GetEnvironmentVariable("TD_TYPING_PROBE") is not null && !typingProbe) { typingProbe = true; _ = TypingProbeAsync(); }
+                   PostTerminalTheme();
+                   ApplyCopyOnSelect();
+                   // Focused while the page was still loading (a new tab): put the cursor in it now.
+@@ -101,14 +103,16 @@ public sealed partial class SessionPane : Grid
+                   break;
+                 case "input" when runtime is not null && draft.IsLive:
+                   var text = body.GetProperty("data").GetString()!;
++                  TdTiming.Log($"[{draft.Title}] input {TdTiming.Mask(text)}");
+                   if (Encoding.UTF8.GetByteCount(text) <= 65536) await runtime.SendAsync(draft.Id, text);
+                   break;
+                 case "resize" when runtime is not null && draft.IsLive:
+                   var cols = Math.Clamp(body.GetProperty("cols").GetInt32(), 20, 500);
+                   var rows = Math.Clamp(body.GetProperty("rows").GetInt32(), 5, 200);
+-                  lastSize = (cols, rows);
++                  lastSize = (cols, rows); TdTiming.Log($"[{draft.Title}] RESIZE from page {cols}x{rows}");
+                   await runtime.Keeper.ResizeAsync(draft.Id, new(cols, rows)); break;
+                 case "repaint" when runtime is not null && draft.IsLive:
++                  TdTiming.Log($"[{draft.Title}] REPAINT requested");
+                   await RepaintAsync(Math.Clamp(body.GetProperty("cols").GetInt32(), 20, 500), Math.Clamp(body.GetProperty("rows").GetInt32(), 5, 200)); break;
+               }
+             }
+@@ -179,11 +183,13 @@ public sealed partial class SessionPane : Grid
+       try
+       {
+         await using var attachment = await runtime!.Keeper.AttachAsync(draft.Id, stop.Token);
++        TdTiming.Log($"[{draft.Title}] ATTACH replay {attachment.Snapshot.Replay.Length} chars");
+         Post(new { type = "replay", data = attachment.Snapshot.Replay });
+         ready.TrySetResult();
+         ShowSessionNotice("");
+         await foreach (var change in attachment.Events(stop.Token))
+         {
++          TdTiming.Log($"[{draft.Title}] event {change.Kind} {(change.Kind == "data" ? TdTiming.Mask(change.Text ?? "") : (change.Text?.Length ?? 0) + " chars")}");
+           if (change.Kind == "data") Post(new { type = "data", data = change.Text });
+           if (change.Kind == "reset") Post(new { type = "replay", data = change.Text ?? "" });
+           if (change.Kind is "exit" or "status") await runtime.RefreshSessionsAsync();
+@@ -219,6 +225,41 @@ public sealed partial class SessionPane : Grid
+       if (!stop.IsCancellationRequested) await runtime!.Keeper.ResizeAsync(draft.Id, new(finalCols, finalRows));
+     }
+   }
++  private bool typingProbe;
++  private async Task TypingProbeAsync()
++  {
++    async Task Type(string value)
++    {
++      var core = terminal!.CoreWebView2;
++      await core.ExecuteScriptAsync("document.querySelector('.xterm-helper-textarea').focus()");
++      await core.CallDevToolsProtocolMethodAsync("Input.insertText", JsonSerializer.Serialize(new { text = value }));
++    }
++    async Task Screen(string label)
++    {
++      var text = JsonSerializer.Deserialize<string>(await ScreenForProofAsync()) ?? "";
++      var lines = text.Split((char)10).Select(l => l.TrimEnd()).Where(l => l.Length > 0).TakeLast(2);
++      var cursor = await terminal!.CoreWebView2.ExecuteScriptAsync("JSON.stringify(window.__tdCursor ? window.__tdCursor() : null)");
++      TdTiming.Log($"[{draft.Title}] SCREEN {label}: {string.Join(" / ", lines)} cursor={cursor}");
++    }
++    try
++    {
++      if (Environment.GetEnvironmentVariable("TD_TYPING_PROBE") is { Length: > 1 } script && File.Exists(script))
++      {
++        await Task.Delay(6000); TdTiming.Log($"[{draft.Title}] PROBE run idle-redraw");
++        await Type(draft.Shell == "cmd" ? $"chcp 65001 >nul & node \"{script}\"" : $"chcp 65001 > $null; node \"{script}\"");
++        await terminal!.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(new { type = "keyDown", key = "Enter", code = "Enter", windowsVirtualKeyCode = 13, text = "\r" }));
++        await terminal.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(new { type = "keyUp", key = "Enter", code = "Enter", windowsVirtualKeyCode = 13 }));
++        await Task.Delay(5000); await Screen("after idle-redraw");
++        return;
++      }
++      await Task.Delay(6000); TdTiming.Log($"[{draft.Title}] PROBE type 'echo a '"); await Type("echo a ");
++      await Task.Delay(800); await Screen("after 'echo a '");
++      await Task.Delay(12000); await Screen("after 12 s idle");
++      TdTiming.Log($"[{draft.Title}] PROBE type 'b'"); await Type("b");
++      await Task.Delay(1500); await Screen("after 'b'");
++    }
++    catch (Exception ex) { TdTiming.Log("PROBE failed " + ex.Message); }
++  }
+   internal async Task<string> ScreenForProofAsync()
+   {
+     if (terminal?.CoreWebView2 is not { } core) throw new IOException();

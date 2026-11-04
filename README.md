@@ -16,6 +16,9 @@ working on the fork. Code changes go on feature branches cut from
 | `tools/make-local-contracts.ps1` | Recreate the MCP contract JSONs missing from upstream (git-excluded); the build needs them |
 | `tools/probe-titlebar.ps1` | Read-only check of which title-bar points can drag the dev window (`HTCAPTION`) |
 | `tools/save-notes.ps1` | Commit these notes and push `dev-notes` to origin only |
+| [prs/](prs/) | PR titles and bodies, one per branch (`fix/x` → `fix-x.md`) |
+| `tools/create-draft-prs.ps1` | Open a draft PR on asadev for each branch from `prs/*.md`; skips open ones (`-DryRun`) |
+| [tools/diag/](tools/diag/) | Local-only instrumentation: masked typing log patch, `TdTiming.cs`, ConPTY probe |
 | `tools/pre-push` | Optional git hook that blocks notes leaking upstream |
 
 ## Checkout on a new machine

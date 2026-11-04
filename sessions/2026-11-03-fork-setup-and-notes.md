@@ -1,7 +1,7 @@
 # Session 2026-11-03: fork setup, developer notes, Windows dev guide
 
-- **Branch:** none (setup only). Notes are on `dev-notes`.
-- **PR:** none
+- **Branch:** eight PR branches from `upstream/main` 169cd5e (table in Part 12). Notes are on `dev-notes`.
+- **PR:** asadev/terminaldeck #1–#8, open and ready for review (state at close: see "Wrap-up")
 - **Upstream at:** `169cd5e` (v0.20.2, 2026-10-31); fork `main` is identical
 
 ## Goal
@@ -497,9 +497,40 @@ based on upstream/main 169cd5e:
   Claude Code permission classifier ("Create Public Surface"). The user runs
   `tools/create-draft-prs.ps1`, which takes titles and bodies from `prs/*.md`
   and skips PRs that already exist; `-DryRun` checks without creating.
-- **Diagnostics removed** from `local/try-all`. They're saved as
-  `scratchpad\typing-diag-final.patch` and `scratchpad\TdTiming-final.cs`.
+- **Diagnostics removed** from `local/try-all`. They're kept in
+  `tools/diag/` (moved there at wrap-up from the temporary scratchpad).
   The user's running dev app still has them until its next rebuild.
+
+Later the same day the user said "open the PRs", and `tools/create-draft-prs.ps1`
+opened #1–#8 as drafts. Then they said "mark them ready for review", and
+`gh pr ready` ran for each one.
+
+## Wrap-up: where things stand
+
+State at the end of the session (2026-11-03, checked at wrap-up):
+
+- **PRs.** asadev/terminaldeck #1–#8 are open and ready for review, with no
+  comments or reviews yet. Branch heads are in the Part 12 table. Follow-up
+  commits go on the matching branch, pushed only when the user says so.
+- **Dev app** (`C:\TD\dev\data`). It runs from `local/try-all` 50908bf, which
+  merges all eight branches, with the diagnostics removed. It was rebuilt with
+  `-KeepKeeper`, so the keeper is still bundle `20261103154135211`. That
+  bundle was built after the ConPTY fix and has it.
+- **Local git.** `local/try-all` is clean. Worktrees `C:\TD\wt\conpty-control-cells`
+  and `C:\TD\wt\session-ended` still exist, each with a copied
+  `windows/docs/contracts`. Reuse them for PR follow-ups, or remove them
+  with `git worktree remove`. No data2 test instance is running.
+- **Diagnostics** are in `tools/diag/`: the masked typing log patch,
+  `TdTiming.cs`, and the ConPTY probe with its C0 test scripts.
+
+Lessons for next time:
+- `gh` under Windows PowerShell 5.1: `--jq` filters with quotes get mangled,
+  so pipe `--json` to `ConvertFrom-Json` instead. `gh` writes success messages
+  to stderr, which PowerShell shows as a red NativeCommandError even when it
+  worked.
+- Opening PRs on asadev is outward-facing. The Claude Code classifier blocks
+  it unless the user has just asked for it.
+- Natural shell exits reach the UI as `reset` events, not `exit` (Part 12).
 
 ## Next
 
@@ -508,15 +539,17 @@ based on upstream/main 169cd5e:
 - [x] First build (passes with the local contracts)
 - [x] First launch, clean (with the 17 placeholder contracts)
 - [x] Decide on a first PR: draggable title bar (`fix/windows-titlebar-drag`, committed locally)
-- [ ] User tries the title bar, then push it and open a draft PR upstream
-- [ ] User checks the four new fix branches in the dev app (from `local/try-all`), then push and open a draft PR per branch
+- [x] User tries the title bar, then push it and open a draft PR upstream (PR #1)
+- [x] User checks the fix branches in the dev app (from `local/try-all`), then push and open a PR per branch (#2–#8)
 - [x] Shell choice setting (`feat/windows-terminal-shell`). Possible follow-up: a dropdown on the terminal + button to pick per tab
 - [x] Open the 8 draft PRs on asadev, with the user's explicit go-ahead: asadev/terminaldeck #1 title bar, #2 smooth text, #3 focus, #4 tab switch and reorder, #5 icons and ring, #6 shell choice and tab names, #7 ConPTY control cells, #8 session ended. Dev window rebuilt with `-KeepKeeper` (diagnostics gone, notice in).
 - [x] PRs #1–#8 marked ready for review at the user's request
 - [ ] Watch the PRs for maintainer feedback. Run `gh pr list --repo asadev/terminaldeck --author umermalik129`, and `gh pr view <n> --comments` for each.
 - [ ] Open question, noted in the `fix/windows-smooth-tab-switch` PR: `errors.log` has 2 unhandled `ArgumentException: Choose an open window tab.`. They come from `WorkspaceState.Focus` via `pane.GotFocus` in `RenderNode` (upstream has the same handler), at 13:28 UTC while sessions were dying under restarts. Check whether cached pane sets let a closed tab's pane take focus.
-- [ ] Typing-after-a-pause fix (`fix/windows-conpty-control-cells`): user restarts the dev keeper (this closes the open terminals), then confirms with Claude Code in a new tab. Possible upstream report to Claude Code: it writes a raw SI on its idle redraw
-- [ ] User tries tab dragging and reordering again after 1a67cb7. They reported "tab reorder is not working": with `ClickMode.Press`, `FocusPane` moved focus into the WebView2 synchronously inside the button's PointerPressed, and a pressed ButtonBase that loses focus releases capture, so `CanDrag` never starts. Fix: focus only on release, drop or key up. **Not verified by hand yet.** If it still fails, fall back to select-on-release (upstream behaviour).
+- [x] Dev keeper restarted with the typing-after-a-pause fix (`fix/windows-conpty-control-cells`, PR #7)
+- [ ] User confirms the typing glitch is gone when using Claude Code in a new tab over several days. After the restart they said "looks good so far", but haven't confirmed this glitch specifically.
+- [ ] Possible upstream report to Claude Code: it writes a raw SI on its idle redraw (repro: `tools/diag/conpty-probe/idle-redraw.js`)
+- [ ] User tries tab reordering by hand. They had reported "tab reorder is not working": with `ClickMode.Press`, `FocusPane` moved focus into the WebView2 synchronously inside the button's PointerPressed, and a pressed ButtonBase that loses focus releases capture, so `CanDrag` never starts. Fix: focus only on release, drop or key up. Synthetic real-mouse tests pass (PR #4 table), but **the user hasn't confirmed it by hand**. If it still fails, fall back to select-on-release (upstream behaviour).
 - [ ] PowerShell input latency: each keystroke opens new pipes app→keeper→worker (`KeeperClient.cs:29-59`, `DurableSessionProcessKeeper.cs:91-109`); the global keeper `gate` holds across worker round trips
 - [ ] Remaining tab-switch frame gaps (WebView2 reparenting)
 - [ ] Check timings in a Release build
